@@ -3,106 +3,230 @@ using Library.API.DTOs;
 using Library.API.Interfaces;
 using Library.API.Models;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims; // Necesario para ClaimTypes
 
 namespace Library.API.Controllers
 {
+    using Microsoft.AspNetCore.Mvc;
+
     // Controllers/BooksController.cs
 
-    [Authorize] // 🔐 Todas las acciones en este controlador requieren un token JWT válido
+
+    [Authorize] // Todas las acciones requieren un JWT válido
     [ApiController]
-    [Route("api/[controller]")] // La ruta base será /api/books
+    [Route("api/[controller]")] // /api/books
     public class BooksController : ControllerBase
     {
         private readonly IBookRepository _bookRepository;
 
-        // 1. Inyección de Dependencias (DI)
         public BooksController(IBookRepository bookRepository)
         {
             _bookRepository = bookRepository;
         }
 
+        // Método de utilidad para obtener el UserId del token
+        private int GetUserId()
+        {
+            // Usa NameIdentifier (o el ClaimType que uses para el ID del usuario)
+            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (int.TryParse(userIdString, out int userId))
+            {
+                return userId;
+            }
+            // Devolver un valor que indique error (ej. 0 o lanzar excepción)
+            // Por la validación [Authorize], este escenario debería ser raro.
+            return 0;
+        }
+
         // -------------------------------------------------------------------
-        // A. Lógica para Listar Mi Colección
+        // A. Lógica para Listar Mi Colección (GET /api/books)
         // -------------------------------------------------------------------
 
-        [HttpGet] // GET /api/books
+        [HttpGet]
         public async Task<IActionResult> GetMyBooks()
         {
-            // 2. Obtener el ID del usuario autenticado desde el JWT Token (la clave de seguridad)
-            var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var userId = GetUserId();
+            if (userId == 0) return Unauthorized();
 
-            if (!int.TryParse(userIdString, out int userId))
-            {
-                // Error si el token no tiene el ID de usuario
-                return Unauthorized();
-            }
-
-            // 3. Llamar al repositorio para obtener la colección personal
             var books = await _bookRepository.GetBooksByUserIdAsync(userId);
 
-            // 4. Devolver una respuesta HTTP 200 OK con los datos
-            // (Nota: es buena práctica mapear de Model a DTO antes de devolver)
+            // Retorna HTTP 200 OK con la lista de libros
             return Ok(books);
         }
 
         // -------------------------------------------------------------------
-        // B. Lógica para Añadir un Libro
+        // NUEVO: Lógica para Obtener un Libro por ID (GET /api/books/{id})
         // -------------------------------------------------------------------
 
-        [HttpPost] // POST /api/books
-        public async Task<IActionResult> AddBook([FromBody] BookCreationDTO bookDto)
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetBook(int id)
         {
-            // 2. Obtener el ID del usuario autenticado
-            var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdString, out int userId))
+            var book = await _bookRepository.GetByIdAsync(id);
+
+            if (book == null)
             {
-                return Unauthorized();
+                return NotFound(); // HTTP 404
             }
 
-            // 3. Mapear DTO a la entidad Model
+            // **VERIFICACIÓN DE PROPIEDAD (SEGURIDAD)**
+            if (book.UserId != GetUserId())
+            {
+                return Forbid(); // HTTP 403. El libro existe, pero no pertenece al usuario.
+            }
+
+            return Ok(book);
+        }
+
+        // -------------------------------------------------------------------
+        // B. Lógica para Añadir un Libro (POST /api/books)
+        // -------------------------------------------------------------------
+
+        [HttpPost]
+        public async Task<IActionResult> AddBook([FromBody] BookCreationDTO bookDto)
+        {
+            var userId = GetUserId();
+            if (userId == 0) return Unauthorized();
+
             var newBook = new Book
             {
                 Title = bookDto.Title,
                 Author = bookDto.Author,
                 PublicationYear = bookDto.PublicationYear,
                 CoverImageUrl = bookDto.CoverImageUrl,
-                UserId = userId // Asignar el libro al usuario autenticado
+                UserId = userId // Asignar al usuario autenticado
             };
 
-            // 4. Guardar en la base de datos
             var createdBook = await _bookRepository.AddAsync(newBook);
 
-            // 5. Devolver una respuesta HTTP 201 Created
-            return CreatedAtAction(nameof(GetMyBooks), new { id = createdBook.Id }, createdBook);
+            // Retorna HTTP 201 Created
+            return CreatedAtAction(nameof(GetBook), new { id = createdBook.Id }, createdBook);
         }
 
         // -------------------------------------------------------------------
-        // C. Lógica para Añadir una Reseña
+        // NUEVO: Lógica para Editar un Libro (PUT /api/books/{id})
         // -------------------------------------------------------------------
 
-        [HttpPost("{bookId}/reviews")] // POST /api/books/5/reviews
-        public async Task<IActionResult> AddReview(int bookId, [FromBody] ReviewCreationDTO reviewDto)
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateBook(int id, [FromBody] BookUpdateDTO bookDto)
         {
-            var userIdString = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdString, out int userId))
+            var userId = GetUserId();
+            if (userId == 0) return Unauthorized();
+
+            var existingBook = await _bookRepository.GetByIdAsync(id);
+
+            if (existingBook == null)
             {
-                return Unauthorized();
+                return NotFound(); // HTTP 404
             }
 
-            // 1. Opcional: Verificar que el libro exista antes de añadir la reseña (no se muestra aquí).
+            // **VERIFICACIÓN DE PROPIEDAD (SEGURIDAD)**
+            if (existingBook.UserId != userId)
+            {
+                return Forbid(); // HTTP 403
+            }
+
+            // Mapear DTO a la entidad existente (solo actualiza si el campo no es nulo)
+            existingBook.Title = bookDto.Title ?? existingBook.Title;
+            existingBook.Author = bookDto.Author ?? existingBook.Author;
+
+            if (bookDto.PublicationYear.HasValue)
+            {
+                existingBook.PublicationYear = bookDto.PublicationYear.Value;
+            }
+            existingBook.CoverImageUrl = bookDto.CoverImageUrl ?? existingBook.CoverImageUrl;
+
+            bool success = await _bookRepository.UpdateAsync(existingBook);
+
+            if (success)
+            {
+                return NoContent(); // HTTP 204: Petición exitosa, sin contenido para devolver
+            }
+
+            return StatusCode(500, "Error al actualizar el libro en la base de datos.");
+        }
+
+        // -------------------------------------------------------------------
+        // NUEVO: Lógica para Eliminar un Libro (DELETE /api/books/{id})
+        // -------------------------------------------------------------------
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteBook(int id)
+        {
+            var userId = GetUserId();
+            if (userId == 0) return Unauthorized();
+
+            var existingBook = await _bookRepository.GetByIdAsync(id);
+
+            if (existingBook == null)
+            {
+                return NotFound(); // HTTP 404
+            }
+
+            // **VERIFICACIÓN DE PROPIEDAD (SEGURIDAD)**
+            if (existingBook.UserId != userId)
+            {
+                return Forbid(); // HTTP 403
+            }
+
+            bool success = await _bookRepository.DeleteAsync(id);
+
+            if (success)
+            {
+                return NoContent(); // HTTP 204: Eliminación exitosa, sin contenido
+            }
+
+            return StatusCode(500, "Error al eliminar el libro en la base de datos.");
+        }
+
+        // -------------------------------------------------------------------
+        // C. Lógica para Añadir una Reseña (POST /api/books/{bookId}/reviews)
+        // -------------------------------------------------------------------
+
+        [HttpPost("{bookId}/reviews")]
+        public async Task<IActionResult> AddReview(int bookId, [FromBody] ReviewCreationDTO reviewDto)
+        {
+            var userId = GetUserId();
+            if (userId == 0) return Unauthorized();
+
+            // Opcional: Verificar si el libro existe y si pertenece al usuario (aunque la reseña no necesita ser propia)
+            var book = await _bookRepository.GetByIdAsync(bookId);
+            if (book == null)
+            {
+                return NotFound($"Libro con ID {bookId} no encontrado.");
+            }
 
             var newReview = new Review
             {
                 Rating = reviewDto.Rating,
                 Comment = reviewDto.Comment,
-                BookId = bookId, // Clave del libro en la ruta
-                UserId = userId, // Clave del usuario autenticado
+                BookId = bookId,
+                UserId = userId,
                 DateCreated = DateTime.Now
             };
 
             var createdReview = await _bookRepository.AddReviewAsync(newReview);
 
-            return Created("", createdReview); // 201 Created
+            // Retorna HTTP 201 Created
+            return Created("", createdReview);
+        }
+
+        // -------------------------------------------------------------------
+        // NUEVO: Lógica para Obtener Reseñas (GET /api/books/{bookId}/reviews)
+        // -------------------------------------------------------------------
+
+        [HttpGet("{bookId}/reviews")]
+        [AllowAnonymous] // Permitir ver las reseñas sin autenticación (opcional, ajusta según necesidad)
+        public async Task<IActionResult> GetReviews(int bookId)
+        {
+            var reviews = await _bookRepository.GetReviewsByBookIdAsync(bookId);
+
+            if (!reviews.Any())
+            {
+                return NotFound($"No se encontraron reseñas para el libro con ID {bookId}.");
+            }
+
+            return Ok(reviews);
         }
     }
 }

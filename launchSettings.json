@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # 1. Servicio del Contenedor de SQL Server
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest # Imagen oficial de SQL Server en Linux
+    container_name: digital_library_db
+    environment:
+      # Acepta los términos de licencia
+      ACCEPT_EULA: "Y"
+      # Contraseña de usuario SA (asegúrate de que sea fuerte)
+      SA_PASSWORD: "Mistogan07!" 
+    ports:
+      # Mapea el puerto 1433 del contenedor al puerto 1433 de tu máquina local
+      - "1433:1433" 
+    volumes:
+      # Almacena los datos de la DB fuera del contenedor para persistencia (opcional, pero recomendado)
+      - dbdata:/var/opt/mssql
+
+  # 2. Servicio de tu API de ASP.NET Core
+  digital_library_api:
+    build:
+      # Indica dónde está tu archivo Dockerfile (en la carpeta del proyecto)
+      context: . 
+      dockerfile: Library.Api/Dockerfile 
+    ports:
+      # Mapea el puerto de Kestrel (80/443) al puerto local (ej. 5000)
+      - "5000:80" 
+    depends_on:
+      # Asegura que SQL Server se inicie antes que la API
+      - sqlserver
+    environment:
+      # ¡PUNTO CLAVE! Cadena de conexión usando el nombre del servicio de Docker Compose
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=DigitalLibraryDB;User Id=sa;Password=Mistogan07!;Encrypt=False;TrustServerCertificate=True"
+volumes:
+  dbdata:
