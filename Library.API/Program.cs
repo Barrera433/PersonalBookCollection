@@ -1,24 +1,89 @@
-using Library.API.Data;
+
+
 using Library.API.Interfaces;
+using Library.API.Data; // Asume que AppDbContext est谩 aqu铆
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Microsoft.OpenApi.Models; 
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// =======================================================================
+// 1. SERVICIOS DE DATOS Y REPOSITORIOS
+// =======================================================================
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IBookRepository, BookRepository>();
 
-// Configuraci髇 de la conexi髇 a SQL Server
+// Configuraci贸n de la conexi贸n a SQL Server
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+// =======================================================================
+// 2. SWAGGER Y AUTENTICACI脫N JWT (FRONTEND Y BACKEND)
+// =======================================================================
+
+// A. Configuraci贸n de JWT para validaci贸n de tokens
+var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key not found.");
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            // Usa la clave secreta de appsettings
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+// B. Configuraci贸n de Swagger para a帽adir el bot贸n 'Authorize'
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    // 1. Definici贸n del Esquema de Seguridad (OpenAPI)
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Ingresa el token JWT en este formato: Bearer {tu_token_aqui}",
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+    });
+
+    // 2. Requisito de Seguridad (Aplica el esquema a todos los endpoints)
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
+    });
+});
+
+
 var app = builder.Build();
+
+// =======================================================================
+// 3. MIDDLEWARES (Orden Crucial)
+// =======================================================================
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -27,10 +92,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-
-
 app.UseHttpsRedirection();
 
+// Estos dos middlewares deben ir ANTES de app.MapControllers()
+app.UseAuthentication(); 
 app.UseAuthorization();
 
 app.MapControllers();

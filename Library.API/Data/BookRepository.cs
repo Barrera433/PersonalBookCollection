@@ -20,8 +20,8 @@
         {
             // Incluye el usuario propietario si fuera necesario, para el control de acceso
             return await _context.Books
-            .Include(b => b.User)
-            .FirstOrDefaultAsync(b => b.Id == id);
+           .Include(b => b.User)
+           .FirstOrDefaultAsync(b => b.Id == id);
         }
 
         public async Task<IEnumerable<Book>> GetBooksByUserIdAsync(int userId)

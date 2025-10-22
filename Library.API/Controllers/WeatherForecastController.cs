@@ -34,15 +34,11 @@ namespace Library.API.Controllers
             {
                 return userId;
             }
-            // Devolver un valor que indique error (ej. 0 o lanzar excepción)
-            // Por la validación [Authorize], este escenario debería ser raro.
+            
             return 0;
         }
 
-        // -------------------------------------------------------------------
-        // A. Lógica para Listar Mi Colección (GET /api/books)
-        // -------------------------------------------------------------------
-
+        
         [HttpGet]
         public async Task<IActionResult> GetMyBooks()
         {
@@ -55,9 +51,7 @@ namespace Library.API.Controllers
             return Ok(books);
         }
 
-        // -------------------------------------------------------------------
-        // NUEVO: Lógica para Obtener un Libro por ID (GET /api/books/{id})
-        // -------------------------------------------------------------------
+        
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetBook(int id)
@@ -78,9 +72,7 @@ namespace Library.API.Controllers
             return Ok(book);
         }
 
-        // -------------------------------------------------------------------
-        // B. Lógica para Añadir un Libro (POST /api/books)
-        // -------------------------------------------------------------------
+     
 
         [HttpPost]
         public async Task<IActionResult> AddBook([FromBody] BookCreationDTO bookDto)
@@ -103,9 +95,7 @@ namespace Library.API.Controllers
             return CreatedAtAction(nameof(GetBook), new { id = createdBook.Id }, createdBook);
         }
 
-        // -------------------------------------------------------------------
-        // NUEVO: Lógica para Editar un Libro (PUT /api/books/{id})
-        // -------------------------------------------------------------------
+      
 
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateBook(int id, [FromBody] BookUpdateDTO bookDto)
@@ -146,9 +136,7 @@ namespace Library.API.Controllers
             return StatusCode(500, "Error al actualizar el libro en la base de datos.");
         }
 
-        // -------------------------------------------------------------------
-        // NUEVO: Lógica para Eliminar un Libro (DELETE /api/books/{id})
-        // -------------------------------------------------------------------
+        
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteBook(int id)
@@ -179,10 +167,7 @@ namespace Library.API.Controllers
             return StatusCode(500, "Error al eliminar el libro en la base de datos.");
         }
 
-        // -------------------------------------------------------------------
-        // C. Lógica para Añadir una Reseña (POST /api/books/{bookId}/reviews)
-        // -------------------------------------------------------------------
-
+       
         [HttpPost("{bookId}/reviews")]
         public async Task<IActionResult> AddReview(int bookId, [FromBody] ReviewCreationDTO reviewDto)
         {
